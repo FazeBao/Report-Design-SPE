@@ -1,0 +1,194 @@
+% Design 3: architecture part only (C1 component architecture, C2 class design,
+% C3 sequence diagrams) as one self-contained LaTeX file.
+% Build: latexmk -pdf architecture.tex   (or: pdflatex architecture.tex, twice)
+% Needs only the four figure PDFs in figures/: fig_c1_components.pdf,
+% fig_c2_classes.pdf, fig_c3_init.pdf and fig_c3_loop.pdf.
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{array,booktabs,xltabular}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+% ---- Provisional numbering -------------------------------------------------
+\renewcommand{\thesection}{X.\arabic{section}}
+\renewcommand{\thefigure}{X.\arabic{figure}}
+\renewcommand{\thetable}{X.\arabic{table}}
+
+% ---- Helpers ---------------------------------------------------------------
+% Inline code: printed verbatim, with line-break points after _ . , ( [
+\ExplSyntaxOn
+\cs_new_protected:Npn \__dthree_code_char:n #1
+  {
+    #1
+    \str_case:nn {#1}
+      {
+        { _ } { \allowbreak }
+        { . } { \allowbreak }
+        { , } { \allowbreak }
+        { ( } { \allowbreak }
+        { [ } { \allowbreak }
+      }
+  }
+\NewDocumentCommand \code { m }
+  { \texttt { \frenchspacing \str_map_function:nN {#1} \__dthree_code_char:n } }
+\ExplSyntaxOff
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\setlength{\tabcolsep}{4pt}
+\setlength{\emergencystretch}{3em}
+\renewcommand{\arraystretch}{1.15}
+\setlist{itemsep=1pt,topsep=3pt}
+\captionsetup{font=small,labelfont=bf}
+
+\begin{document}
+
+% ============================================================================
+% C1 -- Component architecture
+% ============================================================================
+\section{Component Architecture}\label{sec:c1}
+
+Figure~\ref{fig:c1} is the discrete-event simulation framework for AQNet, with its four layers: Configuration \& Setup, Application Layer, Core and Infrastructure Services.
+
+The Process/User model holds the AQNet logical processes: \code{ArrivalSource} SRC; one \code{Server} class instantiated as N1 (M/M/1/K), L1 (M/M/$\infty$), N2 (M/M/c/K), N3 (M/M/n/n) and N4 (M/M/c); \code{Sink} SNK; and the \code{Router}, with $p_{\mathrm{N2}\to\mathrm{N3}}=0.6$ and $p_{\mathrm{N2}\to\mathrm{N4}}=0.4$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth,height=0.7\textheight,keepaspectratio]{figures/fig_c1_components.pdf}
+  \caption{AQNet component architecture.}
+  \label{fig:c1}
+\end{figure}
+
+\paragraph{Boundaries.} Inside the simulator are the blocks of Figure~\ref{fig:c1}. Outside it are the user or experiment runner that starts a run, the analytical reference table B4 (Design~2) and the experiment matrix D3 (Design~1). The asyncio event loop is only an execution mechanism; virtual time belongs to the Dispatcher alone.
+
+\noindent Blocks of Figure~\ref{fig:c1}:
+\begin{itemize}
+  \item \textbf{Mandatory:} Make Build System and Options Parser (Configuration \& Setup); Process/User model (Application Layer); Dispatcher (sequential), Event Processing and Priority Queue (\code{EventQueue}) (Core); State Management and Infras./Comm.\ layer (Infrastructure Services).
+  \item \textbf{Extension:} LadderQueue, an alternative priority queue with the same \code{push}/\code{pop}; and the Distributed Dispatcher, which uses per-LP queues.
+\end{itemize}
+
+{\small
+\begin{xltabular}{\textwidth}{@{}P{3.2cm}LP{4.4cm}@{}}
+\toprule
+Block & Responsibility & Depends on\\
+\midrule\endhead
+Make Build System & Packages the simulator and provides the one command that starts a run. & --\\
+Options Parser & Reads the run options (\code{end_time}, \code{warmup}, seed) and the model (one \code{NodeConfig} per node, the routing table, the source parameters); rejects invalid input before the run. & Make Build System\\
+Process/User model & The AQNet LPs. Each LP reacts to its events through \code{handle_event} and reaches the rest of the simulator only through its Dispatcher reference (\code{send_event}, \code{create_completion}, \code{complete}, \code{spawn}). & Options Parser, Dispatcher, State Management, Infras./Comm.\ layer\\
+Dispatcher & Pops events in key order, checks \code{end_time}, discards cancelled events, resets statistics at \code{warmup}, advances virtual time and counts \code{events_processed}; front end of the Future registry. & Options Parser, Priority Queue (or LadderQueue), Event Processing, Infras./Comm.\ layer\\
+Priority Queue & \code{EventQueue}: binary heap ordered by (time, priority, seq). & --\\
+Event Processing & Per-event step: sets the destination LP's local virtual time, then calls \code{handle_event}, or resolves O5 when the destination server is down (LC-07). & Process/User model, State Management\\
+State Management & One \code{State} per LP. An LP writes only its own \code{State}; the Dispatcher only reads \code{up}. & --\\
+Infras./Comm.\ layer & asyncio runtime (\code{asyncio.Runner}, one \code{TaskGroup}) and the Future registry keyed by \code{packet_id}; \code{Dispatcher.create_completion} and \code{Dispatcher.complete} are its interface. & --\\
+LadderQueue (extension) & Alternative priority queue with the same \code{push}, \code{pop} and \code{__len__}. & --\\
+Distributed Dispatcher (extension) & Alternative dispatcher with one event queue per LP. & Options Parser, Event Processing, Infras./Comm.\ layer\\
+\bottomrule
+\end{xltabular}
+}
+
+\noindent In Figure~\ref{fig:c1} the arrow \code{complete(packet_id, outcome)} stands for \code{Dispatcher.complete}, which resolves the Future held by the Infras./Comm.\ layer.
+
+% ============================================================================
+% C2 -- Class design
+% ============================================================================
+\section{Class Design}\label{sec:c2}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{figures/fig_c2_classes.pdf}
+  \caption{AQNet class diagram.}
+  \label{fig:c2}
+\end{figure}
+
+{\footnotesize
+\begin{xltabular}{\textwidth}{@{}P{2.4cm}P{2.6cm}P{3.9cm}P{2.4cm}L@{}}
+\toprule
+Class & Method & Parameters (type hints) & Return & Precondition\\
+\midrule\endhead
+\code{Event} & constructor & \code{time: float, source: str, destination: str, kind: str, payload: Optional[Packet], priority: int, seq: int = -1} & \code{Event} & $0 \le$ \code{time} $< \infty$; \code{kind} is GENERATE, ARRIVAL, DEPARTURE or FAULT\\
+ & \code{key} & -- & \code{tuple[float, int, int]} & \code{seq} $\ge 0$ (assigned)\\
+ & field \code{cancelled} & \code{cancelled: bool = False} & -- & Set only by \code{Dispatcher.cancel_event}\\
+\code{Packet} & constructor & \code{packet_id: int, birth_time: float, deadline: float} & \code{Packet} & \code{deadline} $\ge$ \code{birth_time}\\
+\code{Visit} & constructor & \code{packet: Packet, t_arrive: float}; fields \code{t_start: float = nan}, \code{departure: Optional[Event] = None} & \code{Visit} & \code{t_arrive} = \code{now}; written only by the \code{Server} that holds it\\
+\code{EventQueue} & constructor & -- & \code{EventQueue} & None\\
+ & \code{push} & \code{event: Event} & \code{None} & \code{event.seq} $\ge 0$\\
+ & \code{pop} & -- & \code{Event} & \code{len(queue)} $> 0$\\
+ & \code{__len__} & -- & \code{int} & None; the dispatcher loops while it is $> 0$\\
+\code{Dispatcher} & constructor & \code{queue: EventQueue, end_time: float, warmup: float, seed: int} & \code{Dispatcher} & $0 \le$ \code{warmup} $<$ \code{end_time}; called by \code{Simulation._create_dispatcher}\\
+ & \code{register_lp} & \code{lp: LogicalProcess} & \code{None} & Not running; \code{lp.name} not yet registered. Sets \code{lp.dispatcher = self} and \code{lp.rng = random.Random(f"{seed}/{lp.name}")}, then calls \code{lp.initialize()}\\
+ & \code{schedule_event} & \code{event: Event} & \code{Event} & \code{now} $\le$ \code{event.time}; destination registered; assigns \code{seq}\\
+ & \code{send_event} & \code{event: Event} & \code{Event} & Called inside the source LP's \code{handle_event}; as \code{schedule_event}\\
+ & \code{cancel_event} & \code{event: Event} & \code{None} & Event scheduled and not yet popped; sets \code{event.cancelled = True}; the event is discarded when popped\\
+ & \code{run} (async) & -- & \code{None} & All LPs registered; called once\\
+ & \code{spawn} & \code{coro: Coroutine} & \code{asyncio.Task} & \code{run} is active; creates the task in the run's \code{TaskGroup}\\
+ & \code{create_completion} & \code{packet_id: int} & \code{asyncio.Future} & Event loop running; no pending Future for \code{packet_id}\\
+ & \code{complete} & \code{packet_id: int, outcome: str} & \code{None} & Future of \code{packet_id} pending; \code{outcome} in O1--O5; one outcome per packet\\
+ & \code{stats} & -- & \code{dict} & None; includes \code{now}, \code{events_processed}, \code{events_discarded}\\
+\code{Simulation} & constructor & \code{options: dict} (\code{end_time: float}, \code{warmup: float = 0}, \code{seed: int}) & \code{Simulation} & $0 <$ \code{end_time} $< \infty$; $0 \le$ \code{warmup} $<$ \code{end_time}\\
+ & \code{register_model} & \code{model: dict} (one \code{NodeConfig} per node, the \code{Router}, the source parameters) & \code{None} & Called once, before any \code{create_LogicalProcess}\\
+ & \code{create_LogicalProcess} & \code{name: str} & \code{LogicalProcess} & Model registered; \code{name} in the model and not yet created\\
+ & \code{run} & -- & \code{dict} & All LPs created; not yet run\\
+ & \code{_create_dispatcher} & -- & \code{Dispatcher} & Called once, inside \code{run}\\
+ & \code{stats} & -- & \code{dict} & \code{run} has returned\\
+\code{LogicalProcess} & fields & \code{name: str, state: State, dispatcher: Dispatcher, rng: random.Random} & -- & \code{dispatcher} and \code{rng} set by \code{register_lp}\\
+ & \code{initialize} & -- & \code{None} & Called once, by \code{register_lp}, at \code{now} = 0\\
+ & \code{handle_event} (synchronous) & \code{event: Event} & \code{None} & \code{event.destination == name}; \code{state.lvt == event.time}; called only by the dispatcher\\
+ & \code{set_local_virt_time} & \code{t: float} & \code{None} & $t \ge$ \code{state.lvt}\\
+ & \code{reset_stats} & \code{t: float} & \code{None} & Called once by the dispatcher with $t$ = \code{warmup}; \code{state.lvt} $\le t$. Default does nothing; \code{Server} overrides\\
+ & \code{finalize} & \code{t: float} & \code{None} & Called once by the dispatcher with $t$ = \code{end_time} when the run stops. Default does nothing; \code{Server} overrides\\
+ & \code{stats} & -- & \code{dict} & \code{finalize} has run\\
+\code{State} & fields & \code{lvt: float, up: bool} & -- & Written only by its own LP; the dispatcher reads \code{up}\\
+\code{SourceState} & fields & \code{next_packet_id: int, outcome_counts: dict[str, int], post_warmup_outcomes: dict[str, int], e2e_delays: list[float]} & -- & Owned by one \code{ArrivalSource}; \code{outcome_counts} counts every packet and is never reset; the other two count only packets with $t_b \ge t_w$\\
+\code{ServerState} & fields & \code{n: int, buffer: deque[Visit], in_service: dict[int, Visit], drops: dict[str, int], t_last: float, t_reset: float, area_n: float, area_q: float, area_busy: float, time_in_n: dict[int, float], arrivals: int, admitted: int, started: int, completed: int, left: int, sum_w: float, sum_wq: float} & -- & Owned by one \code{Server}\\
+\code{SinkState} & fields & \code{received: int, ttl_drops: int} & -- & Owned by one \code{Sink}; never reset\\
+\code{ArrivalSource} & constructor & \code{name: str, lam: float, ttl: float, router: Router, dist: str = "exp", trace: list[tuple[float, float]] = []} & \code{ArrivalSource} & \code{dist} is \code{"exp"}, or \code{"det"} or \code{"trace"} in tests only; $0 < \lambda < \infty$ unless \code{"trace"}; a trace is a non-empty list of (birth time, $\tau$) sorted by time; $\tau \ge 0$; \code{name} has a routing row\\
+ & \code{initialize} & -- & \code{None} & Schedules the first GENERATE at \code{now} $+ A$, or at the first trace time\\
+ & \code{handle_event} & \code{event: Event} & \code{None} & \code{event.kind} is GENERATE\\
+ & \code{await_completion} (async) & \code{packet_id: int, fut: asyncio.Future} & \code{None} & \code{fut} came from \code{create_completion(packet_id)}; started with \code{dispatcher.spawn}\\
+\code{Server} & constructor & \code{name: str, cfg: NodeConfig, router: Router} & \code{Server} & \code{name} has a routing row\\
+ & \code{handle_event} & \code{event: Event} & \code{None} & \code{event.kind} is ARRIVAL, DEPARTURE or FAULT; first statement is \code{_advance(event.time)}\\
+ & \code{_advance} & \code{t: float} & \code{None} & $t \ge$ \code{state.t_last}; updates the areas\\
+ & \code{reset_stats} & \code{t: float} & \code{None} & \code{_advance(t)}, then every counter set to 0 and \code{t_reset = t}\\
+ & \code{finalize} & \code{t: float} & \code{None} & \code{_advance(t)}\\
+\code{Sink} & constructor & \code{name: str} & \code{Sink} & \code{name} has no routing row\\
+ & \code{handle_event} & \code{event: Event} & \code{None} & \code{event.kind} is ARRIVAL\\
+\code{Router} & constructor & \code{table: dict[str, dict[str, float]]} & \code{Router} & Every $p_{ij} \in [0,1]$; each row, including the exit to SNK, sums to 1; read-only after construction\\
+ & \code{next_hop} & \code{node: str, u: float} & \code{str} & \code{node} has a row; $0 \le u < 1$, drawn by the calling LP from its own \code{rng}\\
+\code{NodeConfig} & constructor & \code{c: float, K: float, mu: float, dist: str = "exp"} & \code{NodeConfig} & $c$ integer $\ge 1$ or $\infty$; $K \ge c$; $K = \infty$ if $c = \infty$; $0 < \mu < \infty$; \code{dist} is \code{"exp"}, or \code{"det"} in tests only\\
+ & \code{rejection_outcome} & -- & \code{str} & $K < \infty$\\
+\bottomrule
+\end{xltabular}
+}
+
+% ============================================================================
+% C3 -- Sequence diagrams
+% ============================================================================
+\section{Sequence Diagrams}\label{sec:c3}
+
+Figures~\ref{fig:c3-init} and~\ref{fig:c3-loop} are the initialization and the event loop of the sequential dispatcher. The event loop discards cancelled events, resets statistics at \code{warmup}, resolves O5 without calling \code{handle_event} when the destination server is down (LC-07), wakes trackers through \code{complete} and the zero-length yield, and closes the statistics with \code{finalize}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{figures/fig_c3_init.pdf}
+  \caption{Initialization.}
+  \label{fig:c3-init}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{figures/fig_c3_loop.pdf}
+  \caption{Event loop.}
+  \label{fig:c3-loop}
+\end{figure}
+
+\end{document}
