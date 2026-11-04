@@ -1,0 +1,86 @@
+% 'draft' mode can be used to speed up compilation
+\documentclass[twoside,final]{hcmut-report}
+\usepackage{codespace}
+
+% Draft watermark
+% https://github.com/callegar/LaTeX-draftwatermark
+
+% Encodings
+\usepackage{gensymb,textcomp}
+
+% Better tables
+% Wide tables go to https://tex.stackexchange.com/q/332902
+\usepackage{array,longtable,multicol,multirow,siunitx,tabularx}
+\usepackage{booktabs}
+% Better enum
+\usepackage{enumitem}
+
+% Graphics
+\usepackage{caption,float}
+
+% Add options for figures, like max width, framing, etc.
+\usepackage[export]{adjustbox}
+
+% References
+% Use \Cref{} instead of \ref{}
+\usepackage[nameinlink]{cleveref}
+
+% FOR DEMONSTRATION PURPOSES, REMOVE IN PRODUCTION
+\usepackage{mwe}
+
+% Sub-preambles
+% https://github.com/MartinScharrer/standalone
+\usepackage{makecell} 
+
+% Configurations
+\coursename{System Performance Evaluation}
+\reporttype{Assignment }
+\title{Report Design}
+\advisor{& NGUYỄN PHƯƠNG DUY &}
+\stuname{%
+  & Student & ID \\
+}
+
+% Allow page breaks inside align* environment
+%\allowdisplaybreaks{}
+
+% Makes a lot of things blue, avoid at all costs
+%\everymath{\color{blue}}
+
+% Set depth of numbering for counters
+\AtBeginDocument{\counterwithin{lstlisting}{section}}
+
+% Rename some sections
+%\AtBeginDocument{\renewcommand*{\contentsname}{Contents}}
+%\AtBeginDocument{\renewcommand*{\refname}{References}}
+%\AtBeginDocument{\renewcommand*{\bibname}{References}}
+
+% Custom commands
+%\newcommand*\mean[1]{\bar{#1}}
+
+\begin{document}
+\coverpage%
+
+%\section*{Member list \& Workload}
+%\newcounter{memberrowno}
+%\setcounter{memberrowno}{0}
+%\begin{center}
+%  \begin{tabular}{>{\stepcounter{memberrowno}\thememberrowno}llcc}
+%    \toprule
+%    \multicolumn{1}{c}{\textbf{No.}} & \textbf{Full name} & \textbf{Student ID} & \textbf{Contribution} \\
+%    \midrule
+%                                     & h                  & xxxxxxx             & 100\%                       \\
+%                                     & h                  & xxxxxxx             & 100\%                       \\
+%    \bottomrule
+%  \end{tabular}
+%\end{center}
+%\clearpage
+
+\tableofcontents
+
+
+\include{chapters/Design 1}
+\include{chapters/Design 2}
+\include{chapters/Design 3}
+
+\end{document}
